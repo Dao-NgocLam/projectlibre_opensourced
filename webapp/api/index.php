@@ -40,7 +40,14 @@ function fail(string $msg, int $code = 400): never { out(['error' => $msg], $cod
 
 require __DIR__ . '/lib/db.php';       // db() -> PDO singleton
 require __DIR__ . '/lib/jwt.php';      // jwt_encode / jwt_decode
+require __DIR__ . '/lib/security.php'; // Cloudflare verify, CSP headers, rate-limit, input sanitizers
 require __DIR__ . '/lib/auth.php';     // current_user(), require_role()
+
+// ---------- Cloudflare front-door enforcement (production only) ----------
+enforce_cloudflare_only($CFG);
+
+// ---------- Security headers (defense-in-depth song song với CF dashboard) ----------
+emit_security_headers();
 
 // ---------- Route ----------
 $route = $_GET['route'] ?? parse_route();

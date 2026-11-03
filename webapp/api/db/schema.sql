@@ -14,8 +14,18 @@ CREATE TABLE IF NOT EXISTS users (
   username      VARCHAR(60)  NOT NULL,
   password_hash VARCHAR(255) NOT NULL,               -- PHP password_hash()
   locale        VARCHAR(10)  NOT NULL DEFAULT 'vi',
+  failed_logins TINYINT UNSIGNED NOT NULL DEFAULT 0, -- app-layer brute-force counter
+  locked_until  DATETIME     NULL,                   -- khoá tạm khi vượt ngưỡng (song song CF WAF)
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_login_at DATETIME     NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------- rate limits --------
+-- App-level fixed-window limiter (bổ sung cho Cloudflare Rate Rules tier Free)
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket_key   CHAR(64)     NOT NULL PRIMARY KEY,    -- sha256(bucket|ip)
+  hits         INT UNSIGNED NOT NULL DEFAULT 1,
+  window_start INT UNSIGNED NOT NULL                 -- unix ts
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ------------------------------------------------------------ projects ----

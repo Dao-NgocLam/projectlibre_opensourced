@@ -38,10 +38,11 @@ function handle(string $route): void {
         }
         if ($method === 'POST') {
             $u = require_user();
+            if (rate_limit('project.create', 30, 3600) < 0) too_many_requests(3600); // chống spam tạo dự án
             $b = body_json();
-            $name = trim((string)($b['name'] ?? ''));
+            $name = clean_str($b['name'] ?? '', 190);
             if ($name === '') fail('Tên dự án không được trống.');
-            $start = (string)($b['start_date'] ?? date('Y-m-d'));
+            $start = clean_date($b['start_date'] ?? '') ?: date('Y-m-d');
             $week = json_encode($b['work_week_days'] ?? [1,2,3,4,5]);
             $st = db()->prepare(
                 'INSERT INTO projects (owner_id,name,description,start_date,work_week_days,autoschedule)
@@ -69,12 +70,18 @@ function handle(string $route): void {
     case 'graph':
         if ($method !== 'PUT') fail('Method không hỗ trợ.', 405);
         $u = require_user();
+        if (rate_limit('graph.put', 120, 60) < 0) too_many_requests(60); // chống ghi liên tục bất thường
         $b = body_json();
         $pid = (int)($b['projectId'] ?? 0);
         require_role($pid, 'editor');
         $rawLen = strlen(file_get_contents('php://input') ?: '');
         global $CFG;
         if ($rawLen > $CFG['max_graph_bytes']) fail('Payload quá lớn (>2MB). Tách nhỏ hơn.', 413);
+
+        // Giới hạn số dòng mỗi collection — chặn payload độc làm DDoS DB (CF WAF đã chặn phần thô)
+        foreach (['tasks' => 5000, 'links' => 10000, 'resources' => 2000, 'assignments' => 10000] as $k => $cap) {
+            if (count($b[$k] ?? []) > $cap) fail("Danh sách '$k' vượt giới hạn hợp lệ ($cap).", 422);
+        }
 
         $pdo = db(); $pdo->beginTransaction();
         try {
@@ -86,9 +93,10 @@ function handle(string $route): void {
                      work_day_hours=?, work_week_days=?, calendar_json=?, autoschedule=?, critical_path_visible=?
                      WHERE id=?'
                 )->execute([
-                    $p['name'] ?? '', $p['description'] ?? null, $p['startDate'] ?? date('Y-m-d'),
-                    $p['finishDate'] ?? null, $p['currentDate'] ?? null,
-                    (float)($p['dayHours'] ?? 8), json_encode($p['workDays'] ?? [1,2,3,4,5]),
+                    clean_str($p['name'] ?? '', 190), clean_str($p['description'] ?? '', 2000),
+                    clean_date($p['startDate'] ?? '') ?: date('Y-m-d'),
+                    clean_date($p['finishDate'] ?? ''), clean_date($p['currentDate'] ?? ''),
+                    min(max((float)($p['dayHours'] ?? 8), 1), 24), json_encode($p['workDays'] ?? [1,2,3,4,5]),
                     json_encode($p['holidays'] ?? []), !empty($p['autoschedule']) ? 1 : 0,
                     !empty($p['showCritical']) ? 1 : 0, $pid,
                 ]);
@@ -153,7 +161,8 @@ function handle(string $route): void {
     case 'join':
         if ($method === 'POST') {
             $u = require_user();
-            $code = strtoupper(trim((string)(body_json()['code'] ?? '')));
+            if (rate_limit('project.join', 10, 3600) < 0) too_many_requests(3600); // chống dò mã mời
+            $code = strtoupper(clean_str(body_json()['code'] ?? '', 10));
             if (strlen($code) !== 6) fail('Mã mời phải 6 ký tự.');
             $st = db()->prepare('SELECT id,owner_id FROM projects WHERE invite_code=?');
             $st->execute([$code]);

@@ -139,3 +139,28 @@ cd webapp/client && npm run build && rsync -av --delete dist/ ../deploy-site/  #
 ---
 
 ✅ Xong! `https://deedsteam.click` giờ là ProjectLibre-online của riêng bạn với MySQL làm nguồn sự thật.
+
+---
+
+## Bước 9 — ☁️ Bật Cloudflare trước khi go-live (bắt buộc)
+
+Toàn bộ chi tiết + checklist: **`webapp/docs/cloudflare_integration.md`**. Tóm tắt thứ tự an toàn:
+
+1. **Đổi nameservers** của `deedsteam.click` tại registrar sang Cloudflare; bật **orange cloud (Proxied)** cho `@` và `www`.
+2. Dashboard CF: SSL = **Full (strict)**, Always-HTTPS ✅, TLS ≥ 1.2 ✅, HSTS ✅, Bot Fight Mode ✅, Rocket Loader ❌ (tắt để Svelte/Vite ES modules chạy đúng).
+3. Tạo **Cache Rule**: `assets/*` cache 1 năm; `/api/*` bypass.
+4. Nhập **5 WAF custom rules** copy-paste từ `deploy/cloudflare/waf-rules.md` (SQLi/XSS, rate-limit `/api/auth/*`, chặn scanner, region, file nhạy cảm).
+5. Import lại `api/db/schema.sql` vào phpMyAdmin (bảng mới `rate_limits`, cột mới `failed_logins`/`locked_until`) — app limiter hoạt động ngay sau khi upload `api/lib/security.php`.
+6. (Nâng cao, khuyến nghị) Deploy Worker ký request `deploy/cloudflare/worker-signature.js` trên subdomain gốc, điền `cf_signed_secret` vào `config.php` **cùng thời điểm** — origin sẽ 403 mọi truy cập trực tiếp không qua Cloudflare, kể cả khi IP InfinityFree bị lộ.
+7. Chạy 5 lệnh xác minh §7 tài liệu integration (health-check, security headers, bypass test, SQLi test, brute-force test).
+
+> ⚠️ Lưu ý dev local: đặt `DEEDSPLAN_ENV=development` (hoặc `'env' => 'development'` tạm trong config.php) và comment khối `CLOUDFLARE FRONT-DOOR` trong `.htaccess` khi test bằng `php -S`, vì máy local không đi qua dải IP Cloudflare.
+
+## Bước 10 — Vận hành an toàn định kỳ
+
+| Tần suất | Việc |
+|---|---|
+| Tuần | Xem CF Analytics → Events: rule nào bắn nhiều, có block nhầm không |
+| Tháng | Export backup DB (phpMyAdmin), rà `audit_log` các action bất thường |
+| Quý | Đổi `jwt_secret` + `cf_signed_secret` (Worker & config.php cùng lúc), kiểm tra danh sách IP CF https://www.cloudflare.com/ips-v4 |
+| Khi bị tấn công | Bật Security Level "I'm Under Attack", siết Rate Rules, khoá account hàng loạt qua `UPDATE users SET locked_until=NOW()+INTERVAL 1 HOUR WHERE ...` |

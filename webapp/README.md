@@ -143,6 +143,24 @@ Xem **`webapp/deploy/DEPLOYMENT.md`** — hướng dẫn từng bước (step-by
 6. Kiểm tra health-check `https://deedsteam.click/api/index.php?route=health`
 7. Bound-limit & workaround InfinityFree (no cron, no websocket → polling autosave đã thiết kế sẵn)
 
+## 6b. ☁️ Cloudflare — Bảo mật & an toàn (bắt buộc trước khi go-live)
+
+Toàn bộ hướng dẫn chi tiết: **`webapp/docs/cloudflare_integration.md`** · Quy tắc WAF copy-paste: **`webapp/deploy/cloudflare/waf-rules.md`** · Worker chống bypass origin: **`deploy/cloudflare/worker-signature.js`**.
+
+Tóm tắt kiến trúc defense-in-depth đã tích hợp sẵn trong mã nguồn:
+
+| Lớp | Thành phần | File |
+|---|---|---|
+| L0 Edge | DNS proxied, Universal SSL + HSTS, TLS≥1.2, Always-HTTPS, Bot Fight Mode, cache `assets/*` | dashboard Cloudflare |
+| L1 WAF | 5 custom rules chặn SQLi/XSS/scanner + Rate Rule `/api/auth/*` 20/60s | `deploy/cloudflare/waf-rules.md` |
+| L2 Front-door | Chỉ nhận request từ dải IP CF: Apache rewrite **và** PHP `enforce_cloudflare_only()` | `.htaccess`, `api/lib/security.php` |
+| L3 Signed origin | Worker ký `X-Deeds-Signature` HMAC → origin verify (chống cả giả mạo từ trong dải CF) | `worker-signature.js` + `config.php` |
+| L4 App security | Rate-limit MySQL (login/register/join/graph-PUT), khoá tài khoản sau 8 lần sai, password policy, input sanitizers, collection caps | `api/lib/security.php`, routes |
+| L5 Headers | CSP nghiêm ngặt, X-Frame DENY, COOP/CORP, Permissions-Policy, nosniff | `emit_security_headers()` + `.htaccess` |
+| L6 Audit | Mọi mutation ghi `audit_log` với diff JSON — minh bạch truy vết | `api/lib/auth.php::audit()` |
+
+> ⚠️ Sau khi import lại `schema.sql` (đã thêm bảng `rate_limits` + cột `failed_logins/locked_until`), set `'env' => 'production'` và làm theo §5 của tài liệu để bật Worker signed-requests **đồng thời** với khai báo secret — bật lệch thứ tự sẽ gây 403 toàn API.
+
 ## 7. Test nhanh không cần server
 
 `client/src/lib/store.js` hỗ chế **offline mode**: nếu chưa cấu hình API, app chạy full-memory và nhắc người dùng bật đồng bộ — demo UI ngay bằng `npm run dev`.
